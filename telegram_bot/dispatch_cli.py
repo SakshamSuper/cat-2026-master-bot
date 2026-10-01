@@ -21,27 +21,31 @@ import parser
 import master_plan
 from handlers import send_safe_text, get_day_markup
 
-async def run_morning():
+async def run_morning(day_override: int = None):
     print("Executing one-shot morning dispatch...")
     if not config.BOT_TOKEN or not config.CHAT_ID:
         print("Error: BOT_TOKEN or CHAT_ID not set.")
         sys.exit(1)
 
-    req = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+    req = HTTPXRequest(connect_timeout=25.0, read_timeout=25.0)
     bot = Bot(token=config.BOT_TOKEN, request=req)
 
-    # Class to mimic ContextTypes.DEFAULT_TYPE
     class MockContext:
         def __init__(self, b):
             self.bot = b
 
     ctx = MockContext(bot)
-    active_day = tracker.prepare_morning_dispatch_day()
-    print(f"Target day for morning: Day {active_day}")
+    
+    if day_override:
+        active_day = day_override
+    else:
+        active_day = tracker.prepare_morning_dispatch_day()
+
+    print(f"Target day for morning dispatch: Day {active_day}")
 
     file_path = parser.get_day_file(active_day)
     if not file_path:
-        print(f"Generating new set for Day {active_day}...")
+        print(f"Generating new set for Day {active_day} via Gemini...")
         file_path = master_plan.generate_next_set(active_day)
 
     data = parser.parse_day_set(active_day)
@@ -74,16 +78,16 @@ async def run_morning():
                 chat_id=config.CHAT_ID,
                 document=f,
                 filename=file_path.name,
-                caption=f"📄 Day {active_day} Complete Master Set"
+                caption=f"📄 Day {active_day} Master Set Complete Document"
             )
-    print("Morning dispatch complete!")
+    print(f"Morning dispatch for Day {active_day} complete!")
 
-async def run_evening():
+async def run_evening(day_override: int = None):
     print("Executing one-shot evening check-in...")
     if not config.BOT_TOKEN or not config.CHAT_ID:
         sys.exit(1)
 
-    req = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+    req = HTTPXRequest(connect_timeout=25.0, read_timeout=25.0)
     bot = Bot(token=config.BOT_TOKEN, request=req)
 
     class MockContext:
@@ -91,7 +95,7 @@ async def run_evening():
             self.bot = b
 
     ctx = MockContext(bot)
-    active_day = tracker.get_active_day()
+    active_day = day_override if day_override else tracker.get_active_day()
     
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
     markup = InlineKeyboardMarkup([
@@ -115,13 +119,14 @@ async def run_evening():
         f"Ask doubts anytime with `/ask <doubt>`."
     )
     await send_safe_text(ctx, config.CHAT_ID, msg, reply_markup=markup)
-    print("Evening check-in complete!")
+    print(f"Evening check-in for Day {active_day} complete!")
 
 if __name__ == "__main__":
     action = sys.argv[1].lower() if len(sys.argv) > 1 else "morning"
+    override = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else None
     if action == "morning":
-        asyncio.run(run_morning())
+        asyncio.run(run_morning(override))
     elif action == "evening":
-        asyncio.run(run_evening())
+        asyncio.run(run_evening(override))
     else:
         print(f"Unknown action: {action}. Use 'morning' or 'evening'.")

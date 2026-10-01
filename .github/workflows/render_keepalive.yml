@@ -1,0 +1,15 @@
+﻿name: Render Cloud Bot Keep-Alive Heartbeat
+
+on:
+  schedule:
+    # Ping every 10 minutes to prevent Render free container sleep
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Service Health
+        run: |
+          curl -s -f https://cat-2026-master-bot.onrender.com/health || echo "Ping attempted"

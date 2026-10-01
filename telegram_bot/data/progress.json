@@ -1,7 +1,9 @@
 {
-  "active_day": 1,
+  "active_day": 4,
   "completed_days": [],
   "streak": 0,
   "last_completed_date": null,
-  "scores": {}
+  "scores": {},
+  "last_dispatched_date": "2026-10-02",
+  "last_dispatched_day": 4
 }

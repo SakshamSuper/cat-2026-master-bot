@@ -1,0 +1,56 @@
+﻿name: CAT 2026 Morning Master Set Dispatch
+
+on:
+  schedule:
+    # 08:00 AM IST = 02:30 UTC
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      day_override:
+        description: 'Specific Day Number (optional, leave empty for auto progression)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  morning-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Morning Dispatch
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: 'gemini-3.5-flash-lite'
+        run: |
+          if [ -n "${{ github.event.inputs.day_override }}" ]; then
+            python telegram_bot/dispatch_cli.py morning ${{ github.event.inputs.day_override }}
+          else
+            python telegram_bot/dispatch_cli.py morning
+          fi
+
+      - name: Commit & Push New Generated Sets / Progress
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --quiet && git diff --staged --quiet || git commit -m "chore: auto-sync daily master set [skip ci]"
+          git push || true

@@ -1,7 +1,8 @@
 ﻿"""
 tracker.py
 ──────────
-Handles study progress, streak tracking, and synchronization with README.md.
+Handles study progress, streak tracking, and automatic daily progression.
+Guarantees a brand-new day set is selected each morning based on calendar progression.
 """
 
 import json
@@ -10,14 +11,18 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 import config
 
+START_DATE = date(2026, 9, 29)
+BASE_DAY = 1
+
 def _default_state() -> dict:
     return {
-        "active_day": config.DEFAULT_START_DAY,
+        "active_day": None,
         "completed_days": [],
         "streak": 0,
         "last_completed_date": None,
         "last_dispatched_date": None,
         "last_dispatched_day": None,
+        "manual_active_day": None,
         "scores": {}
     }
 
@@ -33,34 +38,47 @@ def load_progress() -> dict:
         return _default_state()
 
 def save_progress(data: dict) -> None:
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(config.PROGRESS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
+def calculate_calendar_day() -> int:
+    """Calculates what day it should be based on calendar days elapsed since launch."""
+    today = date.today()
+    days_elapsed = (today - START_DATE).days
+    return max(1, BASE_DAY + days_elapsed)
+
 def get_active_day() -> int:
-    return load_progress().get("active_day", config.DEFAULT_START_DAY)
+    data = load_progress()
+    if data.get("manual_active_day") is not None:
+        return data["manual_active_day"]
+    return calculate_calendar_day()
 
 def set_active_day(day_num: int) -> int:
     data = load_progress()
-    data["active_day"] = day_num
+    data["manual_active_day"] = day_num
     save_progress(data)
     return day_num
 
 def prepare_morning_dispatch_day() -> int:
-    """Prepares and returns the day number for morning dispatch, auto-advancing to the next day each morning."""
+    """Returns today's new day number for morning dispatch, guaranteed to advance daily."""
     data = load_progress()
     today_str = date.today().isoformat()
-    last_disp_date = data.get("last_dispatched_date")
-    active_day = data.get("active_day", config.DEFAULT_START_DAY)
 
-    # If this is a new calendar day and we already dispatched on a previous date
-    if last_disp_date and last_disp_date != today_str:
-        active_day += 1
-        data["active_day"] = active_day
+    if data.get("manual_active_day") is not None:
+        last_disp_date = data.get("last_dispatched_date")
+        if last_disp_date and last_disp_date != today_str:
+            data["manual_active_day"] += 1
+        day = data["manual_active_day"]
+    else:
+        # Guaranteed fresh new day every single calendar morning!
+        day = calculate_calendar_day()
 
     data["last_dispatched_date"] = today_str
-    data["last_dispatched_day"] = active_day
+    data["last_dispatched_day"] = day
+    data["active_day"] = day
     save_progress(data)
-    return active_day
+    return day
 
 def mark_completed(day_num: int, score_notes: str = None) -> dict:
     data = load_progress()
@@ -70,13 +88,12 @@ def mark_completed(day_num: int, score_notes: str = None) -> dict:
         data["completed_days"].append(day_num)
         data["completed_days"].sort()
 
-    # Update streak
     last_date_str = data.get("last_completed_date")
     if last_date_str:
         try:
             last_date = date.fromisoformat(last_date_str)
             if last_date == date.today():
-                pass # Already completed today
+                pass
             elif last_date == date.today() - timedelta(days=1):
                 data["streak"] = data.get("streak", 0) + 1
             else:
@@ -91,9 +108,9 @@ def mark_completed(day_num: int, score_notes: str = None) -> dict:
     if score_notes:
         data.setdefault("scores", {})[str(day_num)] = score_notes
 
-    # Advance active day if user finished active day
-    if data["active_day"] == day_num:
-        data["active_day"] = day_num + 1
+    # Advance manual active day if user was tracking manual active day
+    if data.get("manual_active_day") == day_num:
+        data["manual_active_day"] = day_num + 1
 
     save_progress(data)
     _sync_readme(day_num)
@@ -104,7 +121,6 @@ def _sync_readme(day_num: int) -> None:
         return
     try:
         content = config.README_PATH.read_text(encoding="utf-8")
-        # Replace ⬜ Pending with ✅ Completed for Day X
         pattern = rf"(\| Day {day_num} \|.*?\|\s*)⬜ Pending(\s*\|)"
         new_content = re.sub(pattern, r"\1✅ Completed\2", content)
         if new_content != content:
@@ -114,11 +130,11 @@ def _sync_readme(day_num: int) -> None:
 
 def get_stats_summary() -> str:
     data = load_progress()
-    total_days = 65  # Base Day 34 to Day 98
+    total_days = 65
     completed_count = len(data.get("completed_days", []))
     remaining = max(0, total_days - completed_count)
     streak = data.get("streak", 0)
-    active_day = data.get("active_day", config.DEFAULT_START_DAY)
+    active_day = get_active_day()
     pct = (completed_count / total_days) * 100 if total_days > 0 else 0
 
     bar_len = 10
@@ -128,10 +144,10 @@ def get_stats_summary() -> str:
     msg = (
         f"📊 *CAT 2026 Preparation Progress*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 *Active Target:* Day {active_day}\n"
+        f"🎯 *Active Day Target:* Day {active_day}\n"
         f"🔥 *Daily Streak:* {streak} day{'s' if streak != 1 else ''}\n"
         f"✅ *Completed Sets:* {completed_count}/{total_days} ({pct:.1f}%)\n"
-        f"⏳ *Remaining Base Sets:* {remaining} days\n"
+        f"⏳ *Remaining Sets:* {remaining} days\n"
         f"📈 *Progress:* `[{bar}]`\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"💡 Use `/done <day>` after solving to mark completion."
